@@ -5,6 +5,7 @@ import morgan from 'morgan';
 import rateLimit from 'express-rate-limit';
 import { config } from './config.js';
 import departuresRouter from './routes/departures.js';
+import apiDeparturesRouter from './routes/apiDepartures.js';
 import { errorHandler } from './middleware/errorHandler.js';
 
 /**
@@ -40,11 +41,25 @@ export function createApp() {
   app.use(limiter);
 
   // ── Routes ────────────────────────────────────────────────────────────────
+  app.get('/', (_req, res) => {
+    res.json({
+      name: 'Lagovia Train Tracker API',
+      version: '1.0.0',
+      description: 'Belgian railway departure board aggregator API.',
+      endpoints: {
+        health: '/health',
+        departures: '/departures?q=<query>',
+        apiDepartures: '/api/departures?q=<query>'
+      }
+    });
+  });
+
   app.get('/health', (_req, res) => {
     res.json({ status: 'ok', timestamp: new Date().toISOString() });
   });
 
   app.use('/departures', departuresRouter);
+  app.use('/api/departures', apiDeparturesRouter);
 
   // 404 handler for unknown routes
   app.use((_req, res) => {

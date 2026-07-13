@@ -39,7 +39,7 @@ npm run dev
 ```
 
 - **Backend API:** http://localhost:3001
-- **Frontend UI:** http://localhost:5173
+- **Frontend UI:** http://localhost:3000 (or http://localhost:8080 depending on port availability)
 - **Health check:** http://localhost:3001/health
 
 ### Running Tests
