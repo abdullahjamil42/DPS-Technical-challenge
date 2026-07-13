@@ -15,10 +15,9 @@ Built with a deliberate emphasis on clean architecture, testability, and product
 | Backend | Node.js 20 + Express 5 | DPS preferred stack; excellent async I/O |
 | Validation | Zod | Schema-first, type-safe query validation |
 | Caching | node-cache | Avoids hammering iRail; stations cached 1hr, liveboards 30s |
-| Frontend | React 19 + Vite | DPS preferred; fast HMR |
-| Data Fetching | TanStack Query | Declarative fetching, auto-refetch, loading/error states |
-| Styling | Vanilla CSS (Modules) | No framework overhead; showcases CSS mastery |
-| Testing | Vitest + Supertest + React Testing Library | Fast, ESM-native test runner |
+| Frontend | TanStack Start (React 19) | Modern React meta-framework built on TanStack Router |
+| Styling | Tailwind CSS v4 | Utility-first styling for high-fidelity dark-mode layouts |
+| Testing | Vitest + Supertest | Fast, ESM-native test runner |
 
 ---
 
@@ -117,15 +116,17 @@ DPS-Technical-challenge/
 │   └── src/
 │       ├── app.js            # Express factory (testable)
 │       ├── config.js         # All env & tuning constants
-│       ├── routes/           # HTTP layer (validation only)
-│       ├── services/         # Business logic (pure functions)
+│       ├── routes/           # HTTP routes (departures & health)
+│       ├── services/         # Business logic (station matching & caching)
 │       ├── middleware/       # Error handler
 │       └── utils/            # Time utilities
-└── frontend/                 # React + Vite SPA
+└── frontend/                 # TanStack Start SSR App
     └── src/
-        ├── hooks/            # useDepartures (React Query)
-        ├── services/         # Fetch wrapper
-        └── components/       # SearchBar, DepartureList, StationGroup, DepartureCard
+        ├── components/       # Custom components and layout cards
+        ├── lib/              # Client helpers
+        ├── routes/           # File-system router routes
+        ├── server.ts         # SSR entry point
+        └── start.ts          # Client mount entry point
 ```
 
 ### Key Design Decisions
@@ -140,7 +141,7 @@ DPS-Technical-challenge/
 
 **5. Backend-side time filtering.** The 15-minute window filter lives on the server, not the client. This is a deliberate API design choice — clients should not be responsible for interpreting business rules.
 
-**6. React Query auto-refetch.** The frontend polls every 30 seconds automatically, giving a live departure board feel without implementing manual polling or WebSockets.
+**6. Debounced fetches with AbortControllers.** The client-side utilizes a robust debouncing mechanism paired with React `useEffect` cleanup abort signals to guarantee that rapid typing triggers only one request at a time and cancels outdated in-flight fetches immediately.
 
 ### Known Limitations
 

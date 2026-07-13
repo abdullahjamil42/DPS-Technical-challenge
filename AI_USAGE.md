@@ -2,18 +2,18 @@
 
 ## Tools used
 
-- **Lovable** (Claude-based agent) — used for the initial scaffold of the
-  TanStack Start project, the design system in `src/styles.css`, and the
-  first pass of the React UI.
+- **Lovable** (Claude-based agent) — Used for the initial high-fidelity scaffold of the TanStack Start frontend client and the styling framework (`src/styles.css`).
+- **Antigravity** (Google DeepMind pair programming assistant) — Used to implement the Express 5.0 backend architecture (Zod schemas, node-cache layers, routing, error handlers), write the entire Vitest suite (39 unit/integration tests), handle frontend/backend integration endpoints, and resolve monorepo dependency hoisting.
 - Occasional targeted prompts for phrasing (README wording, badge copy).
 
 ## What I asked it to do
 
-1. Set up the project shell (TanStack Start, Tailwind v4, dark theme with an
-   SNCB-inspired palette).
-2. Implement `GET /api/departures` and the search UI in one pass, given the
-   iRail docs and the challenge brief.
-3. Draft the README and this file.
+1. Set up the project shell (TanStack Start, Tailwind v4, dark theme with an SNCB-inspired palette).
+2. Implement the frontend search UI components, fuzzy substring matching list blocks, and responsive CSS variables.
+3. Draft the initial README and this file.
+4. Implement a robust Express 5.0 backend with service layers, Helmet/CORS security, rate-limiting, and dual node-cache layers.
+5. Create a test suite with 39 passing unit and integration tests using Vitest.
+6. Wire the custom TanStack client with the Express backend APIs via a Vite proxy.
 
 ## What I accepted as-is
 
@@ -60,7 +60,7 @@ The working plan I used with the agent, roughly:
 > `q.length < 3`; otherwise match iRail stations by substring (fall back
 > to fuzzy via fuse.js), fetch each match's liveboard, keep departures in
 > the next 15 minutes, and return `{ query, now, windowMinutes, stations:
-> [{ station: { id, name, matchType }, departures: [...] }] }`. Cap the
+[{ station: { id, name, matchType }, departures: [...] }] }`. Cap the
 > fanout at 8. Cache the station index. Isolate per-station errors. Then
 > build a single dark-themed React page with a debounced search, grouped
 > results, delay / cancelled badges, and empty/error states. Palette:
