@@ -16,10 +16,10 @@ const DEBOUNCE_MS = 300;
  * The parent receives the debounced query via `onSearch`.
  * The raw (undebounced) value is displayed in the input for instant feedback.
  *
- * @param {{ onSearch: (query: string) => void }} props
+ * @param {{ onSearch: (query: string) => void, initialValue?: string }} props
  */
-export function SearchBar({ onSearch }) {
-  const [rawValue, setRawValue] = useState('');
+export function SearchBar({ onSearch, initialValue = '' }) {
+  const [rawValue, setRawValue] = useState(initialValue);
   const inputRef = useRef(null);
   const debounceRef = useRef(null);
 
