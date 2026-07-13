@@ -1,0 +1,23 @@
+{
+  "name": "dps-lagovia-train-tracker",
+  "version": "1.0.0",
+  "private": true,
+  "description": "DPS Munich Technical Challenge — Lagovia Train Tracker",
+  "workspaces": [
+    "backend",
+    "frontend"
+  ],
+  "scripts": {
+    "dev": "concurrently \"npm run dev --workspace=backend\" \"npm run dev --workspace=frontend\"",
+    "test": "npm run test --workspaces --if-present",
+    "lint": "eslint . --ext .js,.jsx"
+  },
+  "devDependencies": {
+    "concurrently": "^8.2.2",
+    "eslint": "^9.6.0",
+    "prettier": "^3.3.2"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  }
+}
