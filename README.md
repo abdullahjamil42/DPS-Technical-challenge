@@ -41,6 +41,19 @@ npm run dev
 - **Frontend UI:** http://localhost:3000 (or http://localhost:8080 depending on port availability)
 - **Health check:** http://localhost:3001/health
 
+### Docker Setup (Recommended)
+
+Alternatively, you can run the full-stack application completely containerized using Docker Compose:
+
+```bash
+# Build and start frontend & backend services concurrently
+docker compose up --build
+```
+
+- **Frontend UI:** http://localhost:3000
+- **Backend API:** http://localhost:3001
+- **Health check:** http://localhost:3001/health
+
 ### Running Tests
 
 ```bash
@@ -142,6 +155,15 @@ DPS-Technical-challenge/
 **5. Backend-side time filtering.** The 15-minute window filter lives on the server, not the client. This is a deliberate API design choice — clients should not be responsible for interpreting business rules.
 
 **6. Debounced fetches with AbortControllers.** The client-side utilizes a robust debouncing mechanism paired with React `useEffect` cleanup abort signals to guarantee that rapid typing triggers only one request at a time and cancels outdated in-flight fetches immediately.
+
+### Recent Enhancements
+
+To raise the bar for production readiness, the codebase has been significantly improved:
+
+- **Consolidated Route Logic:** Station matching (substring with Fuse.js fuzzy fallback), parallel liveboard fetching, error isolation, and departure filters were refactored from duplicate endpoint handlers into a single unified service layer in [departureService.js](file:///c:/Users/admin/Documents/GitHub/DPS-Technical-challenge/backend/src/services/departureService.js).
+- **Bookmarkable Searches (URL Sync):** Synced React search query state with the URL query parameters `/?q=query` using TanStack Router search validation, enabling bookmarking, direct links loading, and full back/forward browser history integration.
+- **Background Auto-Refresh (Every 60s):** Added a silent, background departures polling interval that updates boards every minute without clearing screens or causing layout skeletons to flicker. Added a pulsing micro-interaction and "Refreshing..." status bar for feedback.
+- **Full Dockerization:** Configured multi-container orchestration via root [docker-compose.yml](file:///c:/Users/admin/Documents/GitHub/DPS-Technical-challenge/docker-compose.yml) and separate optimized Dockerfiles for [frontend](file:///c:/Users/admin/Documents/GitHub/DPS-Technical-challenge/frontend/Dockerfile) and [backend](file:///c:/Users/admin/Documents/GitHub/DPS-Technical-challenge/backend/Dockerfile).
 
 ### Known Limitations
 

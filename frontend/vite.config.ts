@@ -1,10 +1,6 @@
-// @lovable.dev/vite-tanstack-config already includes the following — do NOT add them manually
-// or the app will break with duplicate plugins:
-//   - TanStack devtools (dev-only, first), tanstackStart, viteReact, tailwindcss, tsConfigPaths,
-//     nitro (build-only using cloudflare as a default target), VITE_* env injection, @ path alias,
-//     React/TanStack dedupe, error logger plugins, and sandbox detection (port/host/strictPort).
-// You can pass additional config via defineConfig({ vite: { ... }, etc... }) if needed.
 import { defineConfig } from '@lovable.dev/vite-tanstack-config';
+
+const BACKEND_TARGET = process.env.BACKEND_URL || 'http://localhost:3001';
 
 export default defineConfig({
   tanstackStart: {
@@ -16,10 +12,20 @@ export default defineConfig({
     server: {
       proxy: {
         '/api/departures': {
-          target: 'http://localhost:3001',
+          target: BACKEND_TARGET,
+          changeOrigin: true,
+        },
+      },
+    },
+    preview: {
+      port: 3000,
+      proxy: {
+        '/api/departures': {
+          target: BACKEND_TARGET,
           changeOrigin: true,
         },
       },
     },
   },
 });
+
