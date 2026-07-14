@@ -149,21 +149,6 @@ DPS-Technical-challenge/
 - The station list cache means a newly opened/closed station may take up to 1 hour to reflect.
 - No authentication layer — this matches the open, no-auth nature of the iRail API.
 
-### What I Would Add With More Time
-
-- **Redis** for distributed caching (scales horizontally)
-- **WebSocket** for real-time push instead of 30s polling
-- **Fuzzy search** with Levenshtein distance for typo tolerance
-- **i18n support** (Dutch/French/English station names)
-- **E2E tests** with Playwright
-- **Docker Compose** for one-command full-stack startup
-
----
-
 ## AI Usage
 
 See [AI_USAGE.md](./AI_USAGE.md) for a full transparency report on how AI tools were used throughout this project.
-
----
-
-*Built with ❤️ for Digital Product School Munich*

@@ -21,19 +21,21 @@ import { getDeparturesForQuery } from '../../src/services/departureService.js';
 
 const MOCK_STATION_RESULT = [
   {
-    stationName: 'Brussels-Central',
-    stationId: 'BE.NMBS.008813003',
+    station: {
+      id: 'BE.NMBS.008813003',
+      name: 'Brussels-Central',
+      matchType: 'substring',
+    },
     departures: [
       {
         id: 'http://irail.be/connections/8813003/20240601/IC532',
         trainNumber: 'IC532',
         destination: 'Antwerp-Central',
-        scheduledDepartureTime: '14:05',
+        scheduledTime: new Date(1717232700 * 1000),
         delayMinutes: 3,
         platform: '4',
         isCancelled: false,
         occupancy: 'low',
-        _scheduledUnix: 1717232700,
       },
     ],
   },

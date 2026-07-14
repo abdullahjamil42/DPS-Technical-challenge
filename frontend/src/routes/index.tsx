@@ -1,7 +1,13 @@
 import { createFileRoute } from '@tanstack/react-router';
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { z } from 'zod';
+
+const searchSchema = z.object({
+  q: z.string().optional().catch(''),
+});
 
 export const Route = createFileRoute('/')({
+  validateSearch: (search) => searchSchema.parse(search),
   component: Index,
 });
 
@@ -35,7 +41,7 @@ interface ApiError {
 type FetchState =
   | { status: 'idle' }
   | { status: 'loading' }
-  | { status: 'success'; data: DeparturesResponse }
+  | { status: 'success'; data: DeparturesResponse; isRefreshing?: boolean }
   | { status: 'error'; message: string; kind: 'input' | 'network' };
 
 function useDebouncedValue<T>(value: T, delay: number): T {
@@ -48,17 +54,44 @@ function useDebouncedValue<T>(value: T, delay: number): T {
 }
 
 function Index() {
-  const [query, setQuery] = useState('');
+  const { q = '' } = Route.useSearch();
+  const [query, setQuery] = useState(q);
+  const navigate = Route.useNavigate();
   const debounced = useDebouncedValue(query.trim(), 300);
   const [state, setState] = useState<FetchState>({ status: 'idle' });
+  const [refreshTrigger, setRefreshTrigger] = useState(0);
   const abortRef = useRef<AbortController | null>(null);
 
+  // Sync debounced search value back to the URL search parameter
   useEffect(() => {
-    if (debounced.length === 0) {
+    navigate({
+      search: (old) => ({ ...old, q: debounced || undefined }),
+      replace: true,
+    });
+  }, [debounced, navigate]);
+
+  // Sync URL search parameter changes back to local input state (e.g. browser back/forward buttons)
+  useEffect(() => {
+    setQuery(q);
+  }, [q]);
+
+  // Set up an auto-refresh timer to increment refreshTrigger every 60s when there is a query
+  useEffect(() => {
+    if (q.trim().length < 3) return;
+    const t = setInterval(() => {
+      setRefreshTrigger((prev) => prev + 1);
+    }, 60000);
+    return () => clearInterval(t);
+  }, [q]);
+
+  // Fetch departure data whenever the URL parameter 'q' changes or a refresh is triggered
+  useEffect(() => {
+    const activeQuery = q.trim();
+    if (activeQuery.length === 0) {
       setState({ status: 'idle' });
       return;
     }
-    if (debounced.length < 3) {
+    if (activeQuery.length < 3) {
       setState({
         status: 'error',
         kind: 'input',
@@ -70,9 +103,15 @@ function Index() {
     abortRef.current?.abort();
     const ctrl = new AbortController();
     abortRef.current = ctrl;
-    setState({ status: 'loading' });
 
-    fetch(`/api/departures?q=${encodeURIComponent(debounced)}`, { signal: ctrl.signal })
+    // Use background refresh if results are already loaded to avoid layout jumps
+    setState((prev) =>
+      prev.status === 'success'
+        ? { ...prev, isRefreshing: true }
+        : { status: 'loading' }
+    );
+
+    fetch(`/api/departures?q=${encodeURIComponent(activeQuery)}`, { signal: ctrl.signal })
       .then(async (res) => {
         const body = await res.json();
         if (!res.ok) {
@@ -84,7 +123,7 @@ function Index() {
           });
           return;
         }
-        setState({ status: 'success', data: body as DeparturesResponse });
+        setState({ status: 'success', data: body as DeparturesResponse, isRefreshing: false });
       })
       .catch((err) => {
         if (err.name === 'AbortError') return;
@@ -96,7 +135,7 @@ function Index() {
       });
 
     return () => ctrl.abort();
-  }, [debounced]);
+  }, [q, refreshTrigger]);
 
   return (
     <div className="min-h-screen">
@@ -194,6 +233,8 @@ function ResultsArea({ state, query }: { state: FetchState; query: string }) {
   }
 
   const { data } = state;
+  const isRefreshing = state.status === 'success' && state.isRefreshing;
+
   if (data.stations.length === 0) {
     return (
       <EmptyHint>
@@ -207,15 +248,20 @@ function ResultsArea({ state, query }: { state: FetchState; query: string }) {
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap items-baseline justify-between gap-2 text-xs uppercase tracking-widest text-muted-foreground">
-        <span>
+        <span className="flex items-center gap-2">
           {data.stationCount} station{data.stationCount === 1 ? '' : 's'} · {totalDepartures}{' '}
           departure{totalDepartures === 1 ? '' : 's'} in the next {data.windowMinutes} min
+          {isRefreshing && (
+            <span className="inline-flex h-1.5 w-1.5 animate-pulse rounded-full bg-primary" />
+          )}
         </span>
         <span className="font-display text-primary">
-          {new Date(data.now).toLocaleTimeString([], {
-            hour: '2-digit',
-            minute: '2-digit',
-          })}
+          {isRefreshing
+            ? 'Refreshing…'
+            : `Updated at ${new Date(data.now).toLocaleTimeString([], {
+                hour: '2-digit',
+                minute: '2-digit',
+              })}`}
         </span>
       </div>
       {data.stations.map((block) => (

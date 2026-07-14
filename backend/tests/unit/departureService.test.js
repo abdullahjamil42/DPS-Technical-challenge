@@ -1,7 +1,16 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
+
+vi.mock('../../src/services/irailService.js', () => ({
+  getAllStations: vi.fn(),
+  getLiveboard: vi.fn(),
+}));
+
+import { getAllStations, getLiveboard } from '../../src/services/irailService.js';
 import {
   filterStationsByQuery,
+  matchStations,
   normalizeDeparture,
+  getDeparturesForQuery,
 } from '../../src/services/departureService.js';
 
 // ── Test Fixtures ──────────────────────────────────────────────────────────────
@@ -40,7 +49,6 @@ describe('filterStationsByQuery', () => {
   });
 
   it('returns stations matching query in the standardname field', () => {
-    // "Antwerpen" is in standardname, not necessarily in English name
     const results = filterStationsByQuery(MOCK_STATIONS, 'Antwerpen');
     expect(results).toHaveLength(1);
     expect(results[0].standardname).toBe('Antwerpen-Centraal');
@@ -68,6 +76,31 @@ describe('filterStationsByQuery', () => {
   });
 });
 
+// ── matchStations ──────────────────────────────────────────────────────────────
+
+describe('matchStations', () => {
+  it('matches by substring first', () => {
+    const results = matchStations(MOCK_STATIONS, 'Bru', 5);
+    expect(results).toHaveLength(3); // 'Brussels-Central', 'Brussels-South', 'Bruges'
+    expect(results[0].matchType).toBe('substring');
+    expect(results[0].name).toBe('Brussels-Central');
+  });
+
+  it('falls back to fuzzy matching for typos', () => {
+    const results = matchStations(MOCK_STATIONS, 'Brusels', 5);
+    expect(results.length).toBeGreaterThanOrEqual(2);
+    expect(results[0].matchType).toBe('fuzzy');
+    const names = results.map((r) => r.name);
+    expect(names).toContain('Brussels-Central');
+    expect(names).toContain('Brussels-South');
+  });
+
+  it('caps results at the limit', () => {
+    const results = matchStations(MOCK_STATIONS, 'Bru', 1);
+    expect(results).toHaveLength(1);
+  });
+});
+
 // ── normalizeDeparture ─────────────────────────────────────────────────────────
 
 describe('normalizeDeparture', () => {
@@ -81,9 +114,10 @@ describe('normalizeDeparture', () => {
     expect(result.delayMinutes).toBe(5); // 300s = 5min
   });
 
-  it('formats the scheduled departure time as HH:MM', () => {
+  it('formats the scheduled departure time as Date object', () => {
     const result = normalizeDeparture(MOCK_RAW_DEPARTURE);
-    expect(result.scheduledDepartureTime).toMatch(/^\d{2}:\d{2}$/);
+    expect(result.scheduledTime).toBeInstanceOf(Date);
+    expect(result.scheduledTime.getTime()).toBe(1717232700 * 1000);
   });
 
   it('correctly sets isCancelled to false for canceled:"0"', () => {
@@ -102,7 +136,7 @@ describe('normalizeDeparture', () => {
     expect(normalizeDeparture(cancelled).isCancelled).toBe(true);
   });
 
-  it('extracts platform from platforminfo', () => {
+  it('extracts platform from platforminfo or platform', () => {
     const result = normalizeDeparture(MOCK_RAW_DEPARTURE);
     expect(result.platform).toBe('4');
   });
@@ -129,3 +163,66 @@ describe('normalizeDeparture', () => {
     expect(result.occupancy).toBe('unknown');
   });
 });
+
+// ── getDeparturesForQuery ──────────────────────────────────────────────────────
+
+describe('getDeparturesForQuery', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('returns empty array if query has no matches', async () => {
+    getAllStations.mockResolvedValue(MOCK_STATIONS);
+    const result = await getDeparturesForQuery('xyz_no_match');
+    expect(result).toEqual([]);
+  });
+
+  it('fetches departures and normalizes them within window', async () => {
+    getAllStations.mockResolvedValue(MOCK_STATIONS);
+    getLiveboard.mockImplementation((name) => {
+      if (name === 'Gent-Sint-Pieters' || name === 'Ghent-Sint-Pieters') {
+        return Promise.resolve({
+          station: 'Ghent-Sint-Pieters',
+          departures: {
+            departure: [
+              {
+                id: '1',
+                vehicle: 'IC123',
+                station: 'Antwerp-Central',
+                time: String(Math.floor(Date.now() / 1000) + 300), // 5 min in future
+                delay: '0',
+                canceled: '0',
+              },
+              {
+                id: '2',
+                vehicle: 'IC456',
+                station: 'Ghent-Sint-Pieters',
+                time: String(Math.floor(Date.now() / 1000) + 1200), // 20 min in future
+                delay: '0',
+                canceled: '0',
+              },
+            ],
+          },
+        });
+      }
+      return Promise.resolve(null);
+    });
+
+    const result = await getDeparturesForQuery('Gent-Sint-Pieters');
+    expect(result).toHaveLength(1);
+    expect(result[0].station.name).toBe('Ghent-Sint-Pieters');
+    expect(result[0].departures).toHaveLength(1);
+    expect(result[0].departures[0].trainNumber).toBe('IC123');
+  });
+
+  it('handles single station error gracefully by isolating it', async () => {
+    getAllStations.mockResolvedValue(MOCK_STATIONS);
+    getLiveboard.mockRejectedValue(new Error('Network Error'));
+
+    const result = await getDeparturesForQuery('Gent-Sint-Pieters');
+    expect(result).toHaveLength(1);
+    expect(result[0].departures).toHaveLength(0);
+    expect(result[0].error).toBe('Network Error');
+  });
+});
+

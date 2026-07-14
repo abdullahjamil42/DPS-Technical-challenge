@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { z } from 'zod';
 import { getDeparturesForQuery } from '../services/departureService.js';
 import { createApiError } from '../middleware/errorHandler.js';
+import { formatTime } from '../utils/timeUtils.js';
 
 const router = Router();
 
@@ -54,13 +55,28 @@ router.get('/', async (req, res, next) => {
   const { q } = validation.data;
 
   try {
-    const stations = await getDeparturesForQuery(q);
+    const results = await getDeparturesForQuery(q);
+
+    const formattedStations = results.map((s) => ({
+      stationName: s.station.name,
+      stationId: s.station.id,
+      departures: s.departures.map((d) => ({
+        id: d.id,
+        trainNumber: d.trainNumber,
+        destination: d.destination,
+        scheduledDepartureTime: formatTime(Math.floor(d.scheduledTime.getTime() / 1000)),
+        delayMinutes: d.delayMinutes,
+        platform: d.platform,
+        isCancelled: d.isCancelled,
+        occupancy: d.occupancy,
+      })),
+    }));
 
     return res.json({
       query: q,
       fetchedAt: new Date().toISOString(),
-      stationCount: stations.length,
-      stations,
+      stationCount: formattedStations.length,
+      stations: formattedStations,
     });
   } catch (err) {
     // Unexpected errors from iRail or business logic bubble up here
@@ -76,3 +92,4 @@ router.get('/', async (req, res, next) => {
 });
 
 export default router;
+
