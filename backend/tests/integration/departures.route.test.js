@@ -19,27 +19,32 @@ vi.mock('../../src/services/departureService.js', () => ({
 // Import the mock AFTER vi.mock hoisting
 import { getDeparturesForQuery } from '../../src/services/departureService.js';
 
-const MOCK_STATION_RESULT = [
-  {
-    station: {
-      id: 'BE.NMBS.008813003',
-      name: 'Brussels-Central',
-      matchType: 'substring',
-    },
-    departures: [
-      {
-        id: 'http://irail.be/connections/8813003/20240601/IC532',
-        trainNumber: 'IC532',
-        destination: 'Antwerp-Central',
-        scheduledTime: new Date(1717232700 * 1000),
-        delayMinutes: 3,
-        platform: '4',
-        isCancelled: false,
-        occupancy: 'low',
+const MOCK_SERVICE_RESULT = {
+  stations: [
+    {
+      station: {
+        id: 'BE.NMBS.008813003',
+        name: 'Brussels-Central',
+        matchType: 'substring',
       },
-    ],
-  },
-];
+      departures: [
+        {
+          id: 'http://irail.be/connections/8813003/20240601/IC532',
+          trainNumber: 'IC532',
+          destination: 'Antwerp-Central',
+          scheduledTime: new Date(1717232700 * 1000),
+          delayMinutes: 3,
+          platform: '4',
+          isCancelled: false,
+          occupancy: 'low',
+        },
+      ],
+    },
+  ],
+  truncated: false,
+};
+
+const EMPTY_SERVICE_RESULT = { stations: [], truncated: false };
 
 describe('GET /departures', () => {
   let request;
@@ -79,7 +84,7 @@ describe('GET /departures', () => {
   // ── Happy Path ───────────────────────────────────────────────────────────
 
   it('returns 200 with station data for a valid query', async () => {
-    getDeparturesForQuery.mockResolvedValue(MOCK_STATION_RESULT);
+    getDeparturesForQuery.mockResolvedValue(MOCK_SERVICE_RESULT);
 
     const res = await request.get('/departures?q=Bru');
     expect(res.status).toBe(200);
@@ -90,7 +95,7 @@ describe('GET /departures', () => {
   });
 
   it('response station contains required departure fields', async () => {
-    getDeparturesForQuery.mockResolvedValue(MOCK_STATION_RESULT);
+    getDeparturesForQuery.mockResolvedValue(MOCK_SERVICE_RESULT);
 
     const res = await request.get('/departures?q=Bru');
     const departure = res.body.stations[0].departures[0];
@@ -103,7 +108,7 @@ describe('GET /departures', () => {
   });
 
   it('returns empty stations array when no stations match', async () => {
-    getDeparturesForQuery.mockResolvedValue([]);
+    getDeparturesForQuery.mockResolvedValue(EMPTY_SERVICE_RESULT);
 
     const res = await request.get('/departures?q=xyz');
     expect(res.status).toBe(200);
@@ -112,7 +117,7 @@ describe('GET /departures', () => {
   });
 
   it('accepts a 3-character query (minimum valid)', async () => {
-    getDeparturesForQuery.mockResolvedValue([]);
+    getDeparturesForQuery.mockResolvedValue(EMPTY_SERVICE_RESULT);
     const res = await request.get('/departures?q=Bru');
     expect(res.status).toBe(200);
   });

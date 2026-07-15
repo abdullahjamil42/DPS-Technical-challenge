@@ -10,14 +10,14 @@ Built with a deliberate emphasis on clean architecture, testability, and product
 
 ## Tech Stack
 
-| Layer | Technology | Why |
-|-------|-----------|-----|
-| Backend | Node.js 20 + Express 5 | DPS preferred stack; excellent async I/O |
-| Validation | Zod | Schema-first, type-safe query validation |
-| Caching | node-cache | Avoids hammering iRail; stations cached 1hr, liveboards 30s |
-| Frontend | TanStack Start (React 19) | Modern React meta-framework built on TanStack Router |
-| Styling | Tailwind CSS v4 | Utility-first styling for high-fidelity dark-mode layouts |
-| Testing | Vitest + Supertest | Fast, ESM-native test runner |
+| Layer      | Technology                | Why                                                         |
+| ---------- | ------------------------- | ----------------------------------------------------------- |
+| Backend    | Node.js 20 + Express 5    | DPS preferred stack; excellent async I/O                    |
+| Validation | Zod                       | Schema-first, type-safe query validation                    |
+| Caching    | node-cache                | Avoids hammering iRail; stations cached 1hr, liveboards 30s |
+| Frontend   | TanStack Start (React 19) | Modern React meta-framework built on TanStack Router        |
+| Styling    | Tailwind CSS v4           | Utility-first styling for high-fidelity dark-mode layouts   |
+| Testing    | Vitest + Supertest        | Fast, ESM-native test runner                                |
 
 ---
 
@@ -78,11 +78,13 @@ Returns upcoming departures for all stations matching the search query.
 **Validation:** Query must be ≥ 3 characters.
 
 **Example request:**
+
 ```
 GET /departures?q=Bru
 ```
 
 **Success response (200):**
+
 ```json
 {
   "query": "Bru",
@@ -110,6 +112,7 @@ GET /departures?q=Bru
 ```
 
 **Error response (400) — query too short:**
+
 ```json
 {
   "error": "QUERY_TOO_SHORT",
@@ -118,6 +121,16 @@ GET /departures?q=Bru
   "received": 2
 }
 ```
+
+---
+
+## How Searching Works (Fuzzy Search)
+
+To make searching fast and spelling-tolerant, the app uses a **two-tier search strategy**:
+
+1. **Exact Matches (Direct Substrings):** The system first searches all station names for a direct match containing your search text. For example, typing `"Bru"` instantly matches `"Brussels-Midi"` or `"Brugelette"`.
+2. **Typos & Close Spelling Fallback (Fuzzy Search):** If there are fewer than 8 exact matches, the system automatically uses **`Fuse.js`** to look for close spelling variations. If you misspell Antwerpen as `"Antverpen"`, it detects the close match and shows `"Antwerpen-Centraal"`.
+3. **Smart Tagging:** Any stations found via typo-matching are tagged with a yellow `[FUZZY]` badge in the UI so you know the app made an approximate guess.
 
 ---
 
@@ -164,6 +177,7 @@ To raise the bar for production readiness, the codebase has been significantly i
 - **Bookmarkable Searches (URL Sync):** Synced React search query state with the URL query parameters `/?q=query` using TanStack Router search validation, enabling bookmarking, direct links loading, and full back/forward browser history integration.
 - **Background Auto-Refresh (Every 60s):** Added a silent, background departures polling interval that updates boards every minute without clearing screens or causing layout skeletons to flicker. Added a pulsing micro-interaction and "Refreshing..." status bar for feedback.
 - **Full Dockerization:** Configured multi-container orchestration via root [docker-compose.yml](file:///c:/Users/admin/Documents/GitHub/DPS-Technical-challenge/docker-compose.yml) and separate optimized Dockerfiles for [frontend](file:///c:/Users/admin/Documents/GitHub/DPS-Technical-challenge/frontend/Dockerfile) and [backend](file:///c:/Users/admin/Documents/GitHub/DPS-Technical-challenge/backend/Dockerfile).
+- **Production Resiliency & Testing:** Implemented a robust 76-test Vitest suite, upstream single-retries on transient status errors, 4s request timeouts, 15s client-side timeouts, origin-based CORS protection, `X-Request-ID` request headers, and graceful shutdowns (`SIGINT`/`SIGTERM` handlers).
 
 ### Known Limitations
 

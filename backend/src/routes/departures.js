@@ -55,11 +55,12 @@ router.get('/', async (req, res, next) => {
   const { q } = validation.data;
 
   try {
-    const results = await getDeparturesForQuery(q);
+    const { stations: results, truncated } = await getDeparturesForQuery(q);
 
     const formattedStations = results.map((s) => ({
       stationName: s.station.name,
       stationId: s.station.id,
+      matchType: s.station.matchType,
       departures: s.departures.map((d) => ({
         id: d.id,
         trainNumber: d.trainNumber,
@@ -76,11 +77,17 @@ router.get('/', async (req, res, next) => {
       query: q,
       fetchedAt: new Date().toISOString(),
       stationCount: formattedStations.length,
+      truncated,
       stations: formattedStations,
     });
   } catch (err) {
-    // Unexpected errors from iRail or business logic bubble up here
     console.error('[/departures] Unhandled error:', err.message);
+    if (err.code === 'IRAIL_RATE_LIMITED') {
+      return next(createApiError(429, 'IRAIL_RATE_LIMITED', 'iRail is rate-limiting our requests. Please try again shortly.'));
+    }
+    if (err.code === 'IRAIL_TIMEOUT') {
+      return next(createApiError(503, 'IRAIL_TIMEOUT', 'The iRail API did not respond in time. Please try again.'));
+    }
     return next(
       createApiError(
         503,

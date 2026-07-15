@@ -15,7 +15,7 @@ export const config = {
     /** Departure window: only show trains departing within this many minutes */
     departureWindowMinutes: 15,
     /** HTTP timeout for iRail requests (ms) */
-    requestTimeoutMs: 8000,
+    requestTimeoutMs: 4000,
   },
   rateLimit: {
     windowMs: 60 * 1000, // 1 minute

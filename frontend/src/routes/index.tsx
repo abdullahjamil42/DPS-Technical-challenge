@@ -19,6 +19,7 @@ interface Departure {
   delayMinutes: number;
   cancelled: boolean;
   platform?: string;
+  occupancy?: string;
 }
 interface StationBlock {
   station: { id: string; name: string; matchType: 'substring' | 'fuzzy' };
@@ -30,6 +31,7 @@ interface DeparturesResponse {
   now: string;
   windowMinutes: number;
   stationCount: number;
+  truncated: boolean;
   stations: StationBlock[];
 }
 interface ApiError {
@@ -42,7 +44,12 @@ type FetchState =
   | { status: 'idle' }
   | { status: 'loading' }
   | { status: 'success'; data: DeparturesResponse; isRefreshing?: boolean }
-  | { status: 'error'; message: string; kind: 'input' | 'network' };
+  | { status: 'error'; message: string; kind: 'input' | 'network' | 'rate-limit' };
+
+const SUGGESTED_STATIONS = ['Brussel', 'Gent', 'Antwerpen', 'Liège', 'Brugge'];
+
+// E-16: Frontend fetch timeout — 15 seconds
+const FETCH_TIMEOUT_MS = 15_000;
 
 function useDebouncedValue<T>(value: T, delay: number): T {
   const [debounced, setDebounced] = useState(value);
@@ -70,19 +77,21 @@ function Index() {
     });
   }, [debounced, navigate]);
 
-  // Sync URL search parameter changes back to local input state (e.g. browser back/forward buttons)
+  // Sync URL search parameter changes back to local input state (e.g. browser back/forward)
   useEffect(() => {
     setQuery(q);
   }, [q]);
 
-  // Set up an auto-refresh timer to increment refreshTrigger every 60s when there is a query
+  // E-21: Only auto-refresh when query is valid (≥3 chars) and state is not an input error
   useEffect(() => {
     if (q.trim().length < 3) return;
+    if (state.status === 'error' && state.kind === 'input') return;
+
     const t = setInterval(() => {
       setRefreshTrigger((prev) => prev + 1);
-    }, 60000);
+    }, 60_000);
     return () => clearInterval(t);
-  }, [q]);
+  }, [q, state.status]);
 
   // Fetch departure data whenever the URL parameter 'q' changes or a refresh is triggered
   useEffect(() => {
@@ -104,7 +113,9 @@ function Index() {
     const ctrl = new AbortController();
     abortRef.current = ctrl;
 
-    // Use background refresh if results are already loaded to avoid layout jumps
+    // E-16: Apply a hard 10-second fetch timeout independent of backend
+    const timeoutId = setTimeout(() => ctrl.abort(), FETCH_TIMEOUT_MS);
+
     setState((prev) =>
       prev.status === 'success'
         ? { ...prev, isRefreshing: true }
@@ -113,12 +124,18 @@ function Index() {
 
     fetch(`/api/departures?q=${encodeURIComponent(activeQuery)}`, { signal: ctrl.signal })
       .then(async (res) => {
+        clearTimeout(timeoutId);
         const body = await res.json();
         if (!res.ok) {
           const err = body as ApiError;
+          // E-17: Distinguish 429 rate-limit from other network errors
+          if (res.status === 429) {
+            setState({ status: 'error', kind: 'rate-limit', message: 'Too many requests — please wait a moment before searching again.' });
+            return;
+          }
           setState({
             status: 'error',
-            kind: err.error === 'query_too_short' ? 'input' : 'network',
+            kind: err.error === 'QUERY_TOO_SHORT' || err.error === 'MISSING_QUERY' ? 'input' : 'network',
             message: err.message ?? 'Something went wrong.',
           });
           return;
@@ -126,7 +143,18 @@ function Index() {
         setState({ status: 'success', data: body as DeparturesResponse, isRefreshing: false });
       })
       .catch((err) => {
-        if (err.name === 'AbortError') return;
+        clearTimeout(timeoutId);
+        if (err.name === 'AbortError') {
+          // E-16: Distinguish frontend timeout from user-cancelled request
+          if (!ctrl.signal.aborted || refreshTrigger >= 0) {
+            setState({
+              status: 'error',
+              kind: 'network',
+              message: 'Request timed out. The server is taking too long — please try again.',
+            });
+          }
+          return;
+        }
         setState({
           status: 'error',
           kind: 'network',
@@ -134,7 +162,10 @@ function Index() {
         });
       });
 
-    return () => ctrl.abort();
+    return () => {
+      clearTimeout(timeoutId);
+      ctrl.abort();
+    };
   }, [q, refreshTrigger]);
 
   return (
@@ -142,7 +173,11 @@ function Index() {
       <Header />
       <main className="mx-auto max-w-5xl px-4 pb-24 pt-8 sm:pt-12">
         <SearchBar query={query} onChange={setQuery} />
-        <ResultsArea state={state} query={debounced} />
+        <ResultsArea
+          state={state}
+          query={debounced}
+          onRefresh={() => setRefreshTrigger((p) => p + 1)}
+        />
       </main>
       <Footer />
     </div>
@@ -183,6 +218,7 @@ function Footer() {
   );
 }
 
+// F-3: Clear search button inside the search bar
 function SearchBar({ query, onChange }: { query: string; onChange: (v: string) => void }) {
   return (
     <section className="mb-8">
@@ -194,7 +230,7 @@ function SearchBar({ query, onChange }: { query: string; onChange: (v: string) =
         every upcoming departure from every matching station.
       </p>
       <div className="mt-6 flex items-center gap-2 rounded-sm border border-border bg-card px-4 py-3 shadow-lg focus-within:border-primary">
-        <SearchIcon className="h-5 w-5 text-muted-foreground" />
+        <SearchIcon className="h-5 w-5 flex-shrink-0 text-muted-foreground" />
         <input
           value={query}
           onChange={(e) => onChange(e.target.value)}
@@ -202,18 +238,42 @@ function SearchBar({ query, onChange }: { query: string; onChange: (v: string) =
           className="w-full bg-transparent font-display text-lg tracking-wide text-foreground outline-none placeholder:text-muted-foreground/60"
           autoFocus
           spellCheck={false}
+          maxLength={100}
+          aria-label="Search station"
         />
+        {/* F-3: Clear button — only shown when there's something to clear */}
+        {query.length > 0 && (
+          <button
+            onClick={() => onChange('')}
+            aria-label="Clear search"
+            className="flex-shrink-0 rounded-sm p-1 text-muted-foreground transition-colors hover:text-foreground"
+          >
+            <XIcon className="h-4 w-4" />
+          </button>
+        )}
       </div>
     </section>
   );
 }
 
-function ResultsArea({ state, query }: { state: FetchState; query: string }) {
+function ResultsArea({
+  state,
+  query,
+  onRefresh,
+}: {
+  state: FetchState;
+  query: string;
+  onRefresh: () => void;
+}) {
   if (state.status === 'idle') {
     return (
-      <EmptyHint>
-        Start typing to see departures. Try <Kbd>Bru</Kbd>, <Kbd>Gent</Kbd> or <Kbd>Aac</Kbd>.
-      </EmptyHint>
+      <>
+        <EmptyHint>
+          Start typing to see departures. Try <Kbd>Bru</Kbd>, <Kbd>Gent</Kbd> or <Kbd>Aac</Kbd>.
+        </EmptyHint>
+        {/* F-4: Suggestion chips on idle */}
+        <SuggestionChips query={query} />
+      </>
     );
   }
   if (state.status === 'loading') return <LoadingBoard />;
@@ -224,9 +284,12 @@ function ResultsArea({ state, query }: { state: FetchState; query: string }) {
         className={`rounded-sm border px-4 py-3 text-sm ${
           state.kind === 'input'
             ? 'border-warning/60 bg-warning/10 text-warning'
-            : 'border-destructive/60 bg-destructive/10 text-destructive-foreground'
+            : state.kind === 'rate-limit'
+              ? 'border-orange-500/60 bg-orange-500/10 text-orange-400'
+              : 'border-destructive/60 bg-destructive/10 text-destructive-foreground'
         }`}
       >
+        {state.kind === 'rate-limit' && <span className="mr-2">⏱</span>}
         {state.message}
       </div>
     );
@@ -237,9 +300,13 @@ function ResultsArea({ state, query }: { state: FetchState; query: string }) {
 
   if (data.stations.length === 0) {
     return (
-      <EmptyHint>
-        No stations matched <Kbd>{query}</Kbd>. Try a different substring.
-      </EmptyHint>
+      <>
+        <EmptyHint>
+          No stations matched <Kbd>{query}</Kbd>. Try a different substring.
+        </EmptyHint>
+        {/* F-4: Suggestion chips on empty result */}
+        <SuggestionChips query={query} />
+      </>
     );
   }
 
@@ -251,27 +318,68 @@ function ResultsArea({ state, query }: { state: FetchState; query: string }) {
         <span className="flex items-center gap-2">
           {data.stationCount} station{data.stationCount === 1 ? '' : 's'} · {totalDepartures}{' '}
           departure{totalDepartures === 1 ? '' : 's'} in the next {data.windowMinutes} min
+          {data.truncated && (
+            <span className="rounded-sm border border-warning/50 bg-warning/10 px-1.5 py-0.5 text-[10px] text-warning">
+              + more
+            </span>
+          )}
           {isRefreshing && (
             <span className="inline-flex h-1.5 w-1.5 animate-pulse rounded-full bg-primary" />
           )}
         </span>
-        <span className="font-display text-primary">
-          {isRefreshing
-            ? 'Refreshing…'
-            : `Updated at ${new Date(data.now).toLocaleTimeString([], {
-                hour: '2-digit',
-                minute: '2-digit',
-              })}`}
-        </span>
+        <div className="flex items-center gap-3">
+          <span className="font-display text-primary">
+            {isRefreshing
+              ? 'Refreshing…'
+              : `Updated ${new Date(data.now).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`}
+          </span>
+          {/* F-1: Manual refresh button */}
+          <button
+            onClick={onRefresh}
+            disabled={isRefreshing}
+            aria-label="Refresh departures"
+            className="flex items-center gap-1.5 rounded-sm border border-border px-2 py-1 text-[11px] font-semibold uppercase tracking-widest text-muted-foreground transition-colors hover:border-primary hover:text-primary disabled:opacity-40"
+          >
+            <RefreshIcon className={`h-3 w-3 ${isRefreshing ? 'animate-spin' : ''}`} />
+            Refresh
+          </button>
+        </div>
       </div>
       {data.stations.map((block) => (
-        <StationCard key={block.station.id} block={block} />
+        <StationCard key={block.station.id} block={block} windowMinutes={data.windowMinutes} />
       ))}
     </div>
   );
 }
 
-function StationCard({ block }: { block: StationBlock }) {
+// F-4: Suggestion chips for idle/empty-result states — navigate via href link
+function SuggestionChips({ query }: { query: string }) {
+  // Don't show chips if the query already matches one of the suggestions
+  const chips = SUGGESTED_STATIONS.filter(
+    (s) => !query || !s.toLowerCase().includes(query.toLowerCase())
+  );
+  if (chips.length === 0) return null;
+
+  return (
+    <div className="mt-4 flex flex-wrap items-center gap-2">
+      <span className="text-xs uppercase tracking-widest text-muted-foreground">Try:</span>
+      {chips.map((s) => (
+        <a
+          key={s}
+          href={`/?q=${encodeURIComponent(s)}`}
+          className="rounded-sm border border-border bg-secondary px-3 py-1 font-display text-xs uppercase tracking-widest text-foreground transition-colors hover:border-primary hover:text-primary"
+        >
+          {s}
+        </a>
+      ))}
+    </div>
+  );
+}
+
+function StationCard({ block, windowMinutes }: { block: StationBlock; windowMinutes: number }) {
+  // F-9: Count cancelled departures for the badge
+  const cancelledCount = block.departures.filter((d) => d.cancelled).length;
+
   return (
     <section className="overflow-hidden rounded-sm border border-border bg-card shadow-lg">
       <header className="flex items-center justify-between border-b border-border/70 bg-secondary/40 px-4 py-3">
@@ -286,16 +394,24 @@ function StationCard({ block }: { block: StationBlock }) {
             </span>
           )}
         </div>
-        <span className="text-xs text-muted-foreground">{block.departures.length} upcoming</span>
+        <div className="flex items-center gap-2 text-xs text-muted-foreground">
+          {/* F-9: Cancelled badge */}
+          {cancelledCount > 0 && (
+            <span className="rounded-sm bg-destructive/20 px-1.5 py-0.5 font-display text-[10px] uppercase tracking-widest text-destructive-foreground">
+              {cancelledCount} cancelled
+            </span>
+          )}
+          <span>{block.departures.length} upcoming</span>
+        </div>
       </header>
 
       {block.error ? (
         <p className="px-4 py-4 text-sm text-destructive-foreground">
-          Couldn't load this station: {block.error}
+          ⚠ Couldn't load this station: {block.error}
         </p>
       ) : block.departures.length === 0 ? (
         <p className="px-4 py-6 text-center text-sm text-muted-foreground">
-          Nothing scheduled in the next 15 minutes.
+          Nothing scheduled in the next {windowMinutes} minutes.
         </p>
       ) : (
         <ul className="divide-y divide-border/60">
@@ -318,9 +434,26 @@ function DepartureRow({ d }: { d: Departure }) {
     [d.scheduledTime]
   );
 
+  // F-2: "in X min" countdown — relative time is far more useful at a glance
+  const minutesUntil = useMemo(() => {
+    const effective = new Date(d.scheduledTime).getTime() + d.delayMinutes * 60_000;
+    const diff = Math.round((effective - Date.now()) / 60_000);
+    if (diff <= 0) return 'now';
+    if (diff === 1) return 'in 1 min';
+    return `in ${diff} min`;
+  }, [d.scheduledTime, d.delayMinutes]);
+
+  // F-6: Occupancy icon
+  const occupancyIcon =
+    d.occupancy === 'high' ? '🔴' : d.occupancy === 'medium' ? '🟡' : d.occupancy === 'low' ? '🟢' : null;
+
   return (
-    <li className="grid grid-cols-[auto_1fr_auto] items-center gap-4 px-4 py-3 sm:grid-cols-[80px_100px_1fr_auto]">
+    <li className="grid grid-cols-[auto_1fr_auto] items-center gap-4 px-4 py-3 sm:grid-cols-[80px_80px_100px_1fr_auto]">
       <span className="font-display text-xl font-bold text-primary tabular-nums">{scheduled}</span>
+      {/* F-2: Countdown */}
+      <span className="hidden font-display text-xs tabular-nums text-muted-foreground sm:block">
+        {minutesUntil}
+      </span>
       <span className="font-display text-sm uppercase tracking-wider text-muted-foreground">
         {d.trainNumber}
       </span>
@@ -330,6 +463,10 @@ function DepartureRow({ d }: { d: Departure }) {
         → {d.destination}
         {d.platform && (
           <span className="ml-2 text-xs uppercase text-muted-foreground">pl. {d.platform}</span>
+        )}
+        {/* F-6: Occupancy icon inline */}
+        {occupancyIcon && (
+          <span className="ml-2 text-xs" title={`Occupancy: ${d.occupancy}`}>{occupancyIcon}</span>
         )}
       </span>
       <StatusBadge delay={d.delayMinutes} cancelled={d.cancelled} />
@@ -397,6 +534,45 @@ function SearchIcon({ className }: { className?: string }) {
     >
       <circle cx="11" cy="11" r="7" />
       <path d="m21 21-4.3-4.3" />
+    </svg>
+  );
+}
+
+// F-3: X icon for clear button
+function XIcon({ className }: { className?: string }) {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={2}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={className}
+      aria-hidden="true"
+    >
+      <path d="M18 6 6 18M6 6l12 12" />
+    </svg>
+  );
+}
+
+// F-1: Refresh icon
+function RefreshIcon({ className }: { className?: string }) {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={2}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={className}
+      aria-hidden="true"
+    >
+      <path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8" />
+      <path d="M21 3v5h-5" />
+      <path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16" />
+      <path d="M8 16H3v5" />
     </svg>
   );
 }

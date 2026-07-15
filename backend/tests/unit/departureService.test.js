@@ -80,24 +80,24 @@ describe('filterStationsByQuery', () => {
 
 describe('matchStations', () => {
   it('matches by substring first', () => {
-    const results = matchStations(MOCK_STATIONS, 'Bru', 5);
-    expect(results).toHaveLength(3); // 'Brussels-Central', 'Brussels-South', 'Bruges'
-    expect(results[0].matchType).toBe('substring');
-    expect(results[0].name).toBe('Brussels-Central');
+    const { matches } = matchStations(MOCK_STATIONS, 'Bru', 5);
+    expect(matches).toHaveLength(3); // 'Brussels-Central', 'Brussels-South', 'Bruges'
+    expect(matches[0].matchType).toBe('substring');
+    expect(matches[0].name).toBe('Brussels-Central');
   });
 
   it('falls back to fuzzy matching for typos', () => {
-    const results = matchStations(MOCK_STATIONS, 'Brusels', 5);
-    expect(results.length).toBeGreaterThanOrEqual(2);
-    expect(results[0].matchType).toBe('fuzzy');
-    const names = results.map((r) => r.name);
+    const { matches } = matchStations(MOCK_STATIONS, 'Brusels', 5);
+    expect(matches.length).toBeGreaterThanOrEqual(2);
+    expect(matches.some((m) => m.matchType === 'fuzzy')).toBe(true);
+    const names = matches.map((r) => r.name);
     expect(names).toContain('Brussels-Central');
     expect(names).toContain('Brussels-South');
   });
 
   it('caps results at the limit', () => {
-    const results = matchStations(MOCK_STATIONS, 'Bru', 1);
-    expect(results).toHaveLength(1);
+    const { matches } = matchStations(MOCK_STATIONS, 'Bru', 1);
+    expect(matches).toHaveLength(1);
   });
 });
 
@@ -171,10 +171,11 @@ describe('getDeparturesForQuery', () => {
     vi.clearAllMocks();
   });
 
-  it('returns empty array if query has no matches', async () => {
+  it('returns empty stations array if query has no matches', async () => {
     getAllStations.mockResolvedValue(MOCK_STATIONS);
     const result = await getDeparturesForQuery('xyz_no_match');
-    expect(result).toEqual([]);
+    expect(result.stations).toEqual([]);
+    expect(result.truncated).toBe(false);
   });
 
   it('fetches departures and normalizes them within window', async () => {
@@ -209,10 +210,10 @@ describe('getDeparturesForQuery', () => {
     });
 
     const result = await getDeparturesForQuery('Gent-Sint-Pieters');
-    expect(result).toHaveLength(1);
-    expect(result[0].station.name).toBe('Ghent-Sint-Pieters');
-    expect(result[0].departures).toHaveLength(1);
-    expect(result[0].departures[0].trainNumber).toBe('IC123');
+    expect(result.stations).toHaveLength(1);
+    expect(result.stations[0].station.name).toBe('Ghent-Sint-Pieters');
+    expect(result.stations[0].departures).toHaveLength(1);
+    expect(result.stations[0].departures[0].trainNumber).toBe('IC123');
   });
 
   it('handles single station error gracefully by isolating it', async () => {
@@ -220,9 +221,9 @@ describe('getDeparturesForQuery', () => {
     getLiveboard.mockRejectedValue(new Error('Network Error'));
 
     const result = await getDeparturesForQuery('Gent-Sint-Pieters');
-    expect(result).toHaveLength(1);
-    expect(result[0].departures).toHaveLength(0);
-    expect(result[0].error).toBe('Network Error');
+    expect(result.stations).toHaveLength(1);
+    expect(result.stations[0].departures).toHaveLength(0);
+    expect(result.stations[0].error).toBe('Network Error');
   });
 });
 
